@@ -1,36 +1,33 @@
-import cv2
-from src.gesture_recognition import HandDetector
-from src.ui_overlay import draw_layout, detect_region
-from src.action_mapping import perform_action
+import mediapipe as mp
 
-def main():
-    cap = cv2.VideoCapture(0)
-    detector = HandDetector()
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+class HandDetector:
+    def __init__(self, mode=False, max_hands=1, detection_conf=0.7, track_conf=0.7):
+        self.hands = mp_hands.Hands(
+            static_image_mode=mode,
+            max_num_hands=max_hands,
+            min_detection_confidence=detection_conf,
+            min_tracking_confidence=track_conf
+        )
 
-        frame = detector.find_hands(frame)
-        draw_layout(frame)
+    def find_hands(self, frame, draw=True):
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        self.results = self.hands.process(rgb)
 
-        pos = detector.find_position(frame)
-        if pos:
-            x, y = pos
-            region = detect_region(x, y)
-            if region:
-                cv2.putText(frame, f"In: {region}", (10, 100),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                perform_action(region)
+        if draw and self.results.multi_hand_landmarks:
+            for hand in self.results.multi_hand_landmarks:
+                mp_drawing.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS)
+        return frame
 
-        cv2.imshow("Buckshot Roulette Control", frame)
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    main()
+    def find_position(self, frame):
+        """
+        return (x,y) ของปลายนิ้วชี้ (index finger tip)
+        """
+        h, w, _ = frame.shape
+        if self.results.multi_hand_landmarks:
+            for hand in self.results.multi_hand_landmarks:
+                lm = hand.landmark[8]  # index finger tip
+                return int(lm.x * w), int(lm.y * h)
+        return None
