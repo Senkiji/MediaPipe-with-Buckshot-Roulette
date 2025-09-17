@@ -1,33 +1,46 @@
-import mediapipe as mp
+import cv2
+from modules.hand_tracking import HandTracker
+from modules.gesture_recognition import GestureRecognizer
+from modules.mouse_actions import MouseController
+from overlay.overlay_manager import OverlayManager
+from config.mapping import ACTION_MAPPING
 
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
+def main():
+    cap = cv2.VideoCapture(0)
+    hand_tracker = HandTracker()
+    gesture_recognizer = GestureRecognizer()
+    mouse_controller = MouseController()
+    overlay = OverlayManager()
 
-class HandDetector:
-    def __init__(self, mode=False, max_hands=1, detection_conf=0.7, track_conf=0.7):
-        self.hands = mp_hands.Hands(
-            static_image_mode=mode,
-            max_num_hands=max_hands,
-            min_detection_confidence=detection_conf,
-            min_tracking_confidence=track_conf
-        )
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-    def find_hands(self, frame, draw=True):
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        self.results = self.hands.process(rgb)
+        # ตรวจจับมือ
+        hand_landmarks = hand_tracker.get_hand_landmarks(frame)
 
-        if draw and self.results.multi_hand_landmarks:
-            for hand in self.results.multi_hand_landmarks:
-                mp_drawing.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS)
-        return frame
+        if hand_landmarks:
+            # หาปลายนิ้ว index finger
+            fingertip = hand_tracker.get_index_fingertip(hand_landmarks)
 
-    def find_position(self, frame):
-        """
-        return (x,y) ของปลายนิ้วชี้ (index finger tip)
-        """
-        h, w, _ = frame.shape
-        if self.results.multi_hand_landmarks:
-            for hand in self.results.multi_hand_landmarks:
-                lm = hand.landmark[8]  # index finger tip
-                return int(lm.x * w), int(lm.y * h)
-        return None
+            # ตรวจ gesture ว่า hover อยู่ใน region ไหน
+            hovered_region = gesture_recognizer.detect_hover(fingertip)
+
+            if hovered_region:
+                action = ACTION_MAPPING.get(hovered_region)
+                if action:
+                    mouse_controller.execute_action(action)
+
+            # วาด overlay + highlight region
+            frame = overlay.draw(frame, hovered_region, fingertip)
+
+        cv2.imshow("Buckshot Roulette Controller", frame)
+        if cv2.waitKey(1) & 0xFF == 27:  # ESC
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()
